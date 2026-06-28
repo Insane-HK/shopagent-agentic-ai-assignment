@@ -262,9 +262,26 @@ def get_product(product_id: str) -> dict:
     return {"error": "Product not found"}
 
 
+def get_categories() -> dict:
+    """Return all unique product categories with product count and price range."""
+    from collections import defaultdict
+    buckets = defaultdict(list)
+    for p in PRODUCTS:
+        buckets[p["category"]].append(p["price"])
+
+    result = {}
+    for cat, prices in sorted(buckets.items()):
+        result[cat] = {
+            "product_count": len(prices),
+            "price_range": f"${min(prices):.2f} – ${max(prices):.2f}",
+        }
+    return {"categories": result}
+
+
 # map tool names → functions
 TOOL_MAP = {
     "get_order": get_order,
     "search_products": search_products,
     "get_product": get_product,
+    "get_categories": get_categories,
 }

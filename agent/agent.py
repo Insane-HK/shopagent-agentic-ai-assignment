@@ -49,6 +49,19 @@ TOOL_CONFIG = {
                     }
                 }
             }
+        },
+        {
+            "toolSpec": {
+                "name": "get_categories",
+                "description": "List all available product categories in the store, along with the number of products and price range in each category. Call this when the user asks what categories, departments, or types of products the store carries.",
+                "inputSchema": {
+                    "json": {
+                        "type": "object",
+                        "properties": {},
+                        "required": []
+                    }
+                }
+            }
         }
     ]
 }
