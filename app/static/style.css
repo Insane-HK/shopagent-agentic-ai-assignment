@@ -263,6 +263,8 @@ body { font-family: var(--sans); background: var(--bg); color: var(--text); disp
   line-height: 1.7;
   white-space: pre-wrap;
   word-break: break-word;
+  width: fit-content;
+  max-width: 100%;
 }
 
 /* Agent bubble — left */
