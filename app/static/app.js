@@ -9,6 +9,7 @@ const historyList= document.getElementById('historyList');
 const clearBtn   = document.getElementById('clearBtn');
 const charCount  = document.getElementById('charCount');
 const menuToggle = document.getElementById('menuToggle');
+const themeToggle= document.getElementById('themeToggle');
 const sidebar    = document.getElementById('sidebar');
 const newChatBtn = document.getElementById('newChatBtn');
 
@@ -58,6 +59,16 @@ menuToggle.addEventListener('click', () => {
 document.addEventListener('click', e => {
   if (isMobile() && !sidebar.contains(e.target) && !menuToggle.contains(e.target))
     sidebar.classList.remove('open');
+});
+
+// ── dark mode toggle ──────────────────────────────────────
+const savedTheme = localStorage.getItem('shopagent_theme');
+if (savedTheme === 'dark') document.body.classList.add('dark-mode');
+
+themeToggle.addEventListener('click', () => {
+  document.body.classList.toggle('dark-mode');
+  const isDark = document.body.classList.contains('dark-mode');
+  localStorage.setItem('shopagent_theme', isDark ? 'dark' : 'light');
 });
 
 // ── suggestion chips ──────────────────────────────────────

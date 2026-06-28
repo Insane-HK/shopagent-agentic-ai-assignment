@@ -18,6 +18,20 @@
   --transition: 200ms cubic-bezier(.4,0,.2,1);
 }
 
+body.dark-mode {
+  --bg:        #1A1A18;
+  --surface:   #242422;
+  --sidebar-bg:#111110;
+  --sidebar-fg:#A8A49E;
+  --border:    #333330;
+  --text:      #EBEBEB;
+  --muted:     #A0A09B;
+  --accent:    #8B7CF6;
+  --accent-dk: #A79BF9;
+  --chip-bg:   #2D2D2A;
+  --error:     #FF6B6B;
+}
+
 /* ── reset ───────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { height: 100%; overflow: hidden; }
@@ -167,6 +181,25 @@ body { font-family: var(--sans); background: var(--bg); color: var(--text); disp
 .menu-toggle span { display: block; width: 18px; height: 1.5px; background: var(--muted); border-radius: 2px; transition: background var(--transition); }
 .menu-toggle:hover span { background: var(--text); }
 
+/* ── theme toggle ────────────────────────────────────────── */
+.theme-toggle {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--muted);
+  padding: 6px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background var(--transition), color var(--transition);
+}
+.theme-toggle:hover { background: var(--chip-bg); color: var(--text); }
+.theme-toggle svg { width: 18px; height: 18px; }
+.theme-toggle .sun-icon { display: none; }
+body.dark-mode .theme-toggle .moon-icon { display: none; }
+body.dark-mode .theme-toggle .sun-icon { display: block; }
+
 /* ── conversation area ───────────────────────────────────── */
 .conversation {
   flex: 1;
@@ -279,8 +312,11 @@ body { font-family: var(--sans); background: var(--bg); color: var(--text); disp
 .msg-card.user-card {
   background: var(--accent);
   border: none;
-  color: #fff;
+  color: var(--surface);
   border-bottom-right-radius: 4px;
+}
+body.dark-mode .msg-card.user-card {
+  color: #111;
 }
 
 /* tool trace */
@@ -302,7 +338,7 @@ body { font-family: var(--sans); background: var(--bg); color: var(--text); disp
 .trace-toggle.open .arrow { transform: rotate(90deg); }
 
 .trace-panel {
-  background: #F8F7F4;
+  background: var(--chip-bg);
   border: 1px solid var(--border);
   border-radius: 8px;
   overflow: hidden;
