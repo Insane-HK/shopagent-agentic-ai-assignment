@@ -45,10 +45,18 @@ input.addEventListener('keydown', e => {
   }
 });
 
-// ── sidebar toggle (mobile) ───────────────────────────────
-menuToggle.addEventListener('click', () => sidebar.classList.toggle('open'));
+// ── sidebar toggle (all screens) ────────────────────────
+const isMobile = () => window.innerWidth <= 680;
+menuToggle.addEventListener('click', () => {
+  if (isMobile()) {
+    sidebar.classList.toggle('open');
+    sidebar.classList.remove('collapsed');
+  } else {
+    sidebar.classList.toggle('collapsed');
+  }
+});
 document.addEventListener('click', e => {
-  if (!sidebar.contains(e.target) && !menuToggle.contains(e.target))
+  if (isMobile() && !sidebar.contains(e.target) && !menuToggle.contains(e.target))
     sidebar.classList.remove('open');
 });
 
@@ -162,7 +170,7 @@ function setLoading(on) {
 }
 
 function appendUserMsg(text) {
-  const block = el('div', 'msg-block');
+  const block = el('div', 'msg-block user-block');
   const meta  = el('div', 'msg-meta');
   meta.innerHTML = `<span class="msg-role user">You</span>`;
   const card = el('div', 'msg-card user-card');
@@ -173,7 +181,7 @@ function appendUserMsg(text) {
 }
 
 function appendAgentMsg(q, text, trace, ms, isError = false) {
-  const block = el('div', 'msg-block');
+  const block = el('div', 'msg-block agent-block');
 
   const meta = el('div', 'msg-meta');
   meta.innerHTML = `<span class="msg-role agent">ShopAgent</span>`;
