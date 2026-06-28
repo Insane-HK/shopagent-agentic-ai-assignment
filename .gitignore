@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+*.pyo
+.env
+.venv
+venv/
+.aws-sam/
+.build/
+*.zip
+.DS_Store
+samconfig.toml
+lambda_package.zip

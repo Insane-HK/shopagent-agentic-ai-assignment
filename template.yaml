@@ -1,0 +1,105 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+
+Description: >
+  ShopAgent — Agentic AI customer support API
+  FastAPI on Lambda + API Gateway + Bedrock
+
+Globals:
+  Function:
+    Timeout: 60
+    MemorySize: 512
+    Runtime: python3.12
+    Architectures:
+      - x86_64
+    Environment:
+      Variables:
+        BEDROCK_MODEL_ID: !Ref BedrockModelId
+        AWS_REGION: !Ref AWS::Region
+        PYTHONPATH: /var/task
+
+Parameters:
+  BedrockModelId:
+    Type: String
+    Default: "amazon.nova-pro-v1:0"
+    Description: Bedrock model ID to use for the agent
+
+  StageName:
+    Type: String
+    Default: prod
+    AllowedValues: [dev, staging, prod]
+
+Resources:
+
+  # ── Lambda function ──────────────────────────────────────
+  ShopAgentFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "shopagent-${StageName}"
+      CodeUri: .
+      Handler: lambda_handler.handler
+      Description: ShopAgent FastAPI handler
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        # Bedrock permissions
+        - Statement:
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+                - bedrock:InvokeModelWithResponseStream
+              Resource:
+                - !Sub "arn:aws:bedrock:${AWS::Region}::foundation-model/*"
+      Events:
+        ApiRoot:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ShopAgentApi
+            Path: /
+            Method: GET
+        ApiProxy:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ShopAgentApi
+            Path: /{proxy+}
+            Method: ANY
+
+  # ── HTTP API Gateway ─────────────────────────────────────
+  ShopAgentApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: !Ref StageName
+      CorsConfiguration:
+        AllowOrigins:
+          - "*"
+        AllowMethods:
+          - GET
+          - POST
+          - OPTIONS
+        AllowHeaders:
+          - Content-Type
+          - Authorization
+      Tags:
+        Project: ShopAgent
+        Stage: !Ref StageName
+
+  # ── Log group ────────────────────────────────────────────
+  ShopAgentLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/shopagent-${StageName}"
+      RetentionInDays: 7
+
+Outputs:
+  ApiUrl:
+    Description: "API Gateway endpoint URL"
+    Value: !Sub "https://${ShopAgentApi}.execute-api.${AWS::Region}.amazonaws.com/${StageName}/"
+    Export:
+      Name: !Sub "ShopAgentApiUrl-${StageName}"
+
+  FunctionName:
+    Description: "Lambda function name"
+    Value: !Ref ShopAgentFunction
+
+  FunctionArn:
+    Description: "Lambda function ARN"
+    Value: !GetAtt ShopAgentFunction.Arn
