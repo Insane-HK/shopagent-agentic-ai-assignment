@@ -24,6 +24,12 @@ class TestGetOrder:
         result = get_order("ORD-1003")
         assert result["status"] == "cancelled"
 
+    def test_refunded_order(self):
+        result = get_order("ORD-1006")
+        assert result["status"] == "refunded"
+        assert "refund_reason" in result
+        assert "refund_date" in result
+
     def test_invalid_order(self):
         result = get_order("ORD-9999")
         assert "error" in result
@@ -69,6 +75,18 @@ class TestSearchProducts:
         results = search_products("bag")
         assert isinstance(results, list)
         assert len(results) > 0
+
+    def test_search_keyboard(self):
+        results = search_products("keyboard")
+        assert isinstance(results, list)
+        assert len(results) == 1
+        assert results[0]["product_id"] == "PROD-007"
+
+    def test_search_wallet(self):
+        results = search_products("wallet")
+        assert isinstance(results, list)
+        assert len(results) == 1
+        assert results[0]["product_id"] == "PROD-014"
 
     def test_empty_search(self):
         results = search_products("xyznonexistent123")
