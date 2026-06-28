@@ -72,6 +72,7 @@ Always use the tools to get real data whenever a user asks about or mentions an 
 Keep your tone warm, friendly, and concise. Don't repeat tool output verbatim — summarize it naturally.
 If a query is completely vague (e.g., just saying "hello" or "help"), ask a short clarifying question.
 If the user mentions an order but doesn't provide any order ID, ask them for the order ID.
+CRITICAL INSTRUCTION: You are ONLY permitted to answer questions related to the store, orders, shipping, and products. If a user asks a general knowledge question (e.g., about politics, history, coding, sports, or anything unrelated to customer support), you MUST politely decline to answer and steer the conversation back to store support.
 Do not include any thinking tags or internal reasoning in your response. Just respond directly."""
 
 import re
