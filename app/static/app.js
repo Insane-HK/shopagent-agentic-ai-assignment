@@ -10,9 +10,25 @@ const clearBtn   = document.getElementById('clearBtn');
 const charCount  = document.getElementById('charCount');
 const menuToggle = document.getElementById('menuToggle');
 const sidebar    = document.getElementById('sidebar');
+const newChatBtn = document.getElementById('newChatBtn');
 
-let history = JSON.parse(sessionStorage.getItem('shopagent_history') || '[]');
-let chatHistory = []; // full conversation context
+let chats = [];
+let activeChatId = null;
+
+// Initialize
+try {
+  chats = JSON.parse(localStorage.getItem('shopagent_conversations') || '[]');
+} catch (e) {
+  chats = [];
+}
+
+if (chats.length === 0) {
+  createNewChat();
+} else {
+  activeChatId = chats[0].id;
+  loadActiveChat();
+  renderSidebar();
+}
 
 // ── auto-resize textarea ──────────────────────────────────
 input.addEventListener('input', () => {
@@ -46,14 +62,16 @@ document.querySelectorAll('.suggestion-chip').forEach(btn => {
   });
 });
 
+// ── new chat button ───────────────────────────────────────
+newChatBtn.addEventListener('click', () => {
+  createNewChat();
+});
+
 // ── clear history ─────────────────────────────────────────
 clearBtn.addEventListener('click', () => {
-  history = [];
-  chatHistory = [];
-  sessionStorage.removeItem('shopagent_history');
-  renderHistory();
-  messages.innerHTML = '';
-  welcome.style.display = '';
+  chats = [];
+  localStorage.removeItem('shopagent_conversations');
+  createNewChat();
 });
 
 // ── form submit ───────────────────────────────────────────
@@ -61,6 +79,9 @@ form.addEventListener('submit', async e => {
   e.preventDefault();
   const q = input.value.trim();
   if (!q) return;
+
+  const chat = chats.find(c => c.id === activeChatId);
+  if (!chat) return;
 
   hideWelcome();
   appendUserMsg(q);
@@ -71,7 +92,16 @@ form.addEventListener('submit', async e => {
   input.style.height = 'auto';
   charCount.textContent = '0 / 500';
   
-  chatHistory.push({ role: 'user', text: q });
+  // Save to active chat state
+  chat.uiMessages.push({ type: 'user', text: q });
+  chat.chatHistory.push({ role: 'user', text: q });
+  
+  // Set title if it was "New Chat"
+  if (chat.title === 'New Chat' || chat.chatHistory.length === 1) {
+    chat.title = q.length > 38 ? q.slice(0, 38) + '…' : q;
+    renderSidebar();
+  }
+  saveChats();
 
   try {
     const resp = await fetch('api/chat', {
@@ -79,7 +109,7 @@ form.addEventListener('submit', async e => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ 
           question: q,
-          history: chatHistory.slice(0, -1)
+          history: chat.chatHistory.slice(0, -1)
       }),
     });
 
@@ -87,23 +117,33 @@ form.addEventListener('submit', async e => {
 
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({ detail: resp.statusText }));
-      appendAgentMsg(null, err.detail || 'Something went wrong.', [], 0);
-      chatHistory.pop(); // remove user question on error
+      appendAgentMsg(q, err.detail || 'Something went wrong.', [], 0, true);
+      
+      // Remove from state on error
+      chat.chatHistory.pop();
+      chat.uiMessages.pop();
+      saveChats();
       return;
     }
 
     const data = await resp.json();
     appendAgentMsg(q, data.answer, data.trace || [], data.duration_ms);
     
-    // Only add the very first question of the conversation to the sidebar history
-    if (chatHistory.length === 1) {
-      addToHistory(q);
-    }
-    
-    chatHistory.push({ role: 'assistant', text: data.answer });
+    // Save response to active chat state
+    chat.chatHistory.push({ role: 'assistant', text: data.answer });
+    chat.uiMessages.push({ 
+      type: 'agent', 
+      text: data.answer, 
+      trace: data.trace || [], 
+      ms: data.duration_ms 
+    });
+    saveChats();
   } catch (err) {
     typingEl.remove();
-    appendAgentMsg(null, 'Network error — please try again.', [], 0, true);
+    appendAgentMsg(q, 'Network error — please try again.', [], 0, true);
+    chat.chatHistory.pop();
+    chat.uiMessages.pop();
+    saveChats();
   } finally {
     setLoading(false);
     input.focus();
@@ -204,34 +244,62 @@ function el(tag, cls) {
 }
 
 // ── history sidebar ───────────────────────────────────────
-function addToHistory(q) {
-  const label = q.length > 38 ? q.slice(0, 38) + '…' : q;
-  history.unshift(label);
-  if (history.length > 20) history.pop();
-  sessionStorage.setItem('shopagent_history', JSON.stringify(history));
-  renderHistory();
+function createNewChat() {
+  const newChat = {
+    id: 'chat_' + Date.now(),
+    title: 'New Chat',
+    chatHistory: [],
+    uiMessages: []
+  };
+  chats.unshift(newChat);
+  activeChatId = newChat.id;
+  saveChats();
+  loadActiveChat();
+  renderSidebar();
 }
 
-function renderHistory() {
+function saveChats() {
+  localStorage.setItem('shopagent_conversations', JSON.stringify(chats));
+}
+
+function loadActiveChat() {
+  messages.innerHTML = '';
+  const chat = chats.find(c => c.id === activeChatId);
+  if (!chat) return;
+
+  if (chat.uiMessages.length === 0) {
+    welcome.style.display = '';
+  } else {
+    hideWelcome();
+    chat.uiMessages.forEach(msg => {
+      if (msg.type === 'user') {
+        appendUserMsg(msg.text);
+      } else {
+        appendAgentMsg(null, msg.text, msg.trace, msg.ms, msg.isError);
+      }
+    });
+  }
+  scrollDown();
+}
+
+function renderSidebar() {
   historyList.innerHTML = '';
-  if (!history.length) {
-    const li = document.createElement('li');
-    li.className = 'history-empty';
+  if (!chats.length) {
+    const li = el('li', 'history-empty');
     li.textContent = 'No conversations yet';
     historyList.append(li);
     return;
   }
-  history.forEach(q => {
-    const li = document.createElement('li');
-    li.textContent = q;
-    li.title = q;
+  
+  chats.forEach(chat => {
+    const li = el('li', chat.id === activeChatId ? 'history-item active' : 'history-item');
+    li.textContent = chat.title || 'New Chat';
+    li.title = chat.title || 'New Chat';
     li.addEventListener('click', () => {
-      input.value = q;
-      input.dispatchEvent(new Event('input'));
-      input.focus();
+      activeChatId = chat.id;
+      loadActiveChat();
+      renderSidebar();
     });
     historyList.append(li);
   });
 }
-
-renderHistory();
