@@ -6,6 +6,19 @@ An AI-powered customer support chatbot built with **Amazon Bedrock (Nova Pro)**,
 
 ---
 
+## 📸 Screenshots
+
+### Dark Mode — Welcome Screen
+![Dark Mode Welcome](screenshots/dark_mode.png)
+
+### Light Mode — Chat Conversation
+![Light Mode Chat](screenshots/chat_light.png)
+
+### Dark Mode — Chat Conversation
+![Dark Mode Chat](screenshots/chat_dark.png)
+
+---
+
 ## ✨ Features
 
 | Feature | Details |
