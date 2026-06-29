@@ -21,6 +21,137 @@ An AI-powered customer support chatbot built with **Amazon Bedrock (Nova Pro)**,
 
 ---
 
+## 🧠 The Thought Process — Why I Built It This Way
+
+### The Core Problem
+
+The assignment asked for a customer support agent that can answer questions about orders and products. The naive approach would be to dump all data into the system prompt and let the LLM figure it out. But that breaks immediately:
+
+- **Context window limits** — Even 15 products and 5 orders eat up tokens fast. A real store has thousands.
+- **Hallucination risk** — The model starts "remembering" prices and stock levels that don't exist.
+- **No upgrade path** — You can't swap a system prompt for a real database later without rewriting everything.
+
+So I chose the **agentic tool-use approach**: the model gets *no* data upfront. Instead, it gets a list of tools it can call. It reads the user's question, decides which tool to invoke, reads the result, and formulates a response. This is the same pattern used by production AI agents at scale.
+
+### Why Amazon Nova Pro?
+
+I evaluated the assignment requirements and chose Nova Pro on Bedrock because:
+
+1. **Native tool-use support** — The Converse API has first-class `toolUse` and `toolResult` message types. No hacky prompt engineering to simulate function calling.
+2. **Pay-per-token pricing** — Perfect for a demo project. Zero cost when nobody's using it.
+3. **Low latency** — Responses typically arrive in 800–1500ms, which feels responsive in a chat UI.
+4. **No API key management** — Bedrock uses IAM roles, so credentials are handled by the AWS SDK automatically.
+
+### Why a Custom Agent Loop Instead of LangChain?
+
+This was a deliberate decision. LangChain would have added ~50MB of dependencies and abstracted away the exact thing the assignment wants to demonstrate — *how an agent loop works*.
+
+My custom loop in `agent.py` is ~80 lines and does exactly this:
+
+```
+1. Send user message + tool schemas to Bedrock
+2. If the model returns tool_use blocks → execute each tool locally
+3. Send tool results back as toolResult messages
+4. Repeat until the model returns end_turn (or we hit 6 rounds)
+5. Clean the final response (strip any leaked <thinking> tags)
+```
+
+This gives me full control over error handling, tracing, and response cleaning. Every tool call is recorded with its input and output, which powers the "tool trace" panel in the UI.
+
+### Why FastAPI + Mangum (Not Flask, Not Express)?
+
+The backend needed to serve two purposes:
+- **Local development** — Run with `uvicorn` for hot-reloading during development
+- **Production** — Run inside AWS Lambda for serverless deployment
+
+**FastAPI** was the natural choice because it's async-first, has built-in request validation via Pydantic, and auto-generates API documentation. But the real magic is **Mangum** — a single-line adapter that converts AWS Lambda events into ASGI requests. This means the *exact same* FastAPI code runs locally and in production with zero changes.
+
+```python
+# lambda_handler.py — the entire file
+from mangum import Mangum
+from app.main import app
+handler = Mangum(app)
+```
+
+### Why Vanilla HTML/CSS/JS (Not React)?
+
+For a chat interface, React would have been overkill. It would add a build step, a `node_modules` folder, and complexity with no meaningful benefit. Instead:
+
+- **Vanilla CSS with CSS custom properties** — All colors are defined as `--variables` in `:root`. Dark mode is just a `.dark-mode` class that overrides these variables. One toggle, every element updates instantly.
+- **localStorage for persistence** — Chat threads are serialized to JSON and stored in the browser. No session database needed. Users can refresh the page, close the tab, or come back days later — their conversations are preserved.
+- **Zero build step** — The HTML/CSS/JS files are served directly by FastAPI's `StaticFiles` middleware. No webpack, no bundler, no deployment pipeline for the frontend.
+
+### The Evolution of the UI
+
+The UI went through several iterations during development:
+
+1. **V1 — Basic form** — A simple text input that returned JSON. Functional but ugly.
+2. **V2 — Chat layout** — Added a sidebar, welcome screen, and suggestion chips. Messages were all left-aligned.
+3. **V3 — Chat bubbles** — Switched to a left/right bubble layout (agent on the left, user on the right) to feel like a real messaging app.
+4. **V4 — Thread history** — Added `localStorage`-backed chat threads so clicking an old conversation restores its full message history and tool traces.
+5. **V5 — Dark mode + hamburger** — Added the theme toggle and made the sidebar collapsible on all screen sizes, not just mobile.
+
+### How the Tool System Works
+
+I designed the tools to be dead simple — pure Python functions with no side effects:
+
+```python
+def get_order(order_id: str) -> dict:     # Lookup by ID
+def search_products(query: str) -> list:  # Keyword search
+def get_product(product_id: str) -> dict: # Fetch by product ID
+def get_categories() -> dict:             # List all categories
+```
+
+Each function is registered in two places:
+1. **`TOOL_MAP`** — A Python dict mapping tool names to functions, so the agent loop can call them.
+2. **`TOOL_CONFIG`** — A JSON schema sent to Bedrock, telling the model what tools exist, what parameters they accept, and when to use them.
+
+The model reads the schema descriptions and autonomously decides which tool to call. For example, when a user asks *"Do you have noise-cancelling headphones?"*, the model:
+1. Reads the `search_products` description: *"Search the product catalog by keyword"*
+2. Calls `search_products(query="headphones")`
+3. Gets back a list of matching products
+4. Summarizes them in plain English
+
+The model can also **chain tools**. If it calls `get_order` and the result contains a `product_id`, it might follow up with `get_product` to get full product details — all without being explicitly told to do so.
+
+### Error Handling Philosophy
+
+Errors are treated as *data*, not *exceptions*:
+
+- **Order not found?** → `get_order()` returns `{"error": "Order not found"}`. The model reads this and tells the user naturally: *"I couldn't find that order."*
+- **Unknown tool name?** → `TOOL_MAP.get()` returns `None`, and we return `{"error": "unknown tool"}`. The model recovers gracefully.
+- **Bedrock API failure?** → The FastAPI endpoint catches the exception and returns HTTP 500. The frontend shows a red error card.
+
+This approach means a missing order never crashes the application. The agent handles it like a real support agent would — by politely telling the user.
+
+### Guardrails — Keeping the Agent on Topic
+
+During testing, I discovered the agent would happily answer general knowledge questions ("Who is Donald Trump?") because Nova Pro is a general-purpose LLM. This is wrong for a customer support agent. I added a strict rule to the system prompt:
+
+> *"You are ONLY permitted to answer questions related to the store, orders, shipping, and products. If a user asks an unrelated question, politely decline and steer back to store support."*
+
+Now the agent responds to off-topic questions with something like: *"I'm designed to help with our store's products and orders. How can I assist you with your shopping?"*
+
+### Deployment — Infrastructure as Code
+
+The entire AWS infrastructure is defined in `template.yaml` (CloudFormation/SAM):
+
+- **Lambda function** — Runs the FastAPI app with 512MB memory and a 30-second timeout
+- **API Gateway** — HTTP API with a `{proxy+}` catch-all route
+- **IAM Role** — Grants the Lambda permission to call Bedrock
+- **S3 Bucket** — Stores deployment artifacts
+
+Deployment is a two-command process:
+
+```bash
+python build.py    # Installs deps, copies source, creates zip
+python deploy.py   # Uploads to S3, updates CloudFormation stack
+```
+
+No clicking through the AWS console. Everything is reproducible and version-controlled.
+
+---
+
 ## 🏗️ Architecture
 
 ```
@@ -68,7 +199,7 @@ shopagent/
 │   ├── main.py            # FastAPI routes (/ask, static files)
 │   └── static/
 │       ├── index.html     # Chat UI
-│       ├── style.css      # Light/Dark mode theming
+│       ├── style.css      # Light/Dark mode theming with CSS variables
 │       └── app.js         # Frontend logic, chat threads, localStorage
 ├── tests/
 │   └── test_tools.py      # 12 unit tests for all tool functions
@@ -77,7 +208,7 @@ shopagent/
 ├── build.py               # Packages Lambda deployment zip
 ├── deploy.py              # Deploys to AWS via CloudFormation
 ├── requirements.txt       # Python dependencies
-├── design_decisions.md    # Architectural rationale document
+├── design_decisions.md    # Detailed architectural rationale
 └── README.md
 ```
 
@@ -155,26 +286,24 @@ python -m pytest tests/ -v
 
 ## 🛠️ Tech Stack
 
-| Layer | Technology | Why |
+| Layer | Technology | Why I Chose It |
 |---|---|---|
-| **LLM** | Amazon Nova Pro (Bedrock) | Native tool-use support via Converse API, low latency, pay-per-token |
-| **Backend** | FastAPI + Python | Async-first, auto-generates OpenAPI docs, modern Python standard |
-| **Lambda Adapter** | Mangum | Bridges FastAPI ↔ Lambda with zero code changes |
-| **Frontend** | Vanilla HTML/CSS/JS | Zero build step, instant load, full control over UX |
-| **Infrastructure** | AWS SAM / CloudFormation | Reproducible, version-controlled infrastructure-as-code |
-| **Hosting** | AWS Lambda + API Gateway | Serverless = $0 at idle, auto-scales to thousands of requests |
+| **LLM** | Amazon Nova Pro (Bedrock) | Native tool-use via Converse API, pay-per-token, no API keys needed |
+| **Backend** | FastAPI + Python | Async-first, Pydantic validation, auto-generated docs at `/api/docs` |
+| **Lambda Adapter** | Mangum | One-line bridge: same code runs locally with uvicorn and on Lambda |
+| **Frontend** | Vanilla HTML/CSS/JS | Zero build step, instant load, CSS variables power the entire theme system |
+| **Infrastructure** | AWS SAM / CloudFormation | Reproducible deployments, version-controlled, no console clicking |
+| **Hosting** | AWS Lambda + API Gateway | $0 at idle, auto-scales, no servers to manage |
 
 ---
 
-## 🔒 Design Decisions
+## 🔮 What I'd Improve With More Time
 
-1. **Custom agent loop over LangChain** — Direct Bedrock SDK calls give us full control over the tool-use cycle, error handling, and response cleaning without framework overhead.
-2. **No external database** — Mock data in `tools.py` keeps the project self-contained and instantly deployable for evaluation.
-3. **System prompt guardrails** — The agent is explicitly instructed to refuse off-topic queries, ensuring it stays within its customer-support role.
-4. **localStorage for chat persistence** — Avoids the need for a session database while still providing a seamless multi-conversation experience.
-5. **Cache-busted static assets** — `?v=N` query params on CSS/JS ensures browsers always load the latest version after deployments.
-
-For the full rationale, see [`design_decisions.md`](design_decisions.md).
+- **Streaming responses** — Bedrock supports streaming via `converse_stream`; combined with FastAPI's SSE support, the UI could show tokens as they arrive instead of waiting for the full response.
+- **Real database** — Replace the Python dicts in `tools.py` with DynamoDB calls. The interface stays the same — only the function bodies change.
+- **Authentication** — Add API Gateway + Cognito or a simple API key header to protect the endpoint.
+- **Server-side chat history** — Move conversation storage from `localStorage` to DynamoDB per-user for cross-device persistence.
+- **Step-by-step trace animation** — Animate the tool trace panel to show each step unfolding in real time as the agent thinks.
 
 ---
 
